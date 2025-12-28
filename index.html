@@ -2,498 +2,589 @@
 <html lang="en">
 <head>
     <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no">
-    <title>Ludo Pro - Realtime Multiplayer</title>
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover">
+    <title>Ludo Pro Realtime</title>
+    <meta name="theme-color" content="#1f2937">
+    <meta name="description" content="Realtime Multiplayer Ludo">
+    
+    <!-- Libraries -->
+    <script src="https://unpkg.com/react@18/umd/react.production.min.js" crossorigin></script>
+    <script src="https://unpkg.com/react-dom@18/umd/react-dom.production.min.js" crossorigin></script>
+    <script src="https://unpkg.com/@babel/standalone/babel.min.js"></script>
     <script src="https://unpkg.com/peerjs@1.5.2/dist/peerjs.min.js"></script>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <link href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css" rel="stylesheet">
+
     <style>
-        :root {
-            --red: #ff4757; --green: #2ed573; --yellow: #ffa502; --blue: #1e90ff;
-            --bg: #0f172a; --panel: #1e293b; --text: #f8fafc;
-        }
+        @import url('https://fonts.googleapis.com/css2?family=Fredoka:wght@400;600;700&display=swap');
 
+        /* Reset & Base */
+        * { box-sizing: border-box; -webkit-tap-highlight-color: transparent; }
         body {
-            font-family: 'Segoe UI', Roboto, Helvetica, Arial, sans-serif;
-            background: var(--bg); color: var(--text);
-            margin: 0; height: 100vh; overflow: hidden;
-            display: flex; flex-direction: column;
-            user-select: none; touch-action: manipulation;
+            font-family: 'Fredoka', sans-serif;
+            background: #111827; /* gray-900 */
+            color: white;
+            overflow: hidden;
+            touch-action: none;
+            height: 100dvh; /* dynamic viewport height */
+            width: 100vw;
+            margin: 0;
+            padding: 0;
         }
 
-        /* --- Lobby & UI --- */
-        .screen {
-            position: absolute; inset: 0; display: flex; flex-direction: column;
-            align-items: center; justify-content: center; z-index: 100;
-            background: radial-gradient(circle, #1e293b 0%, #0f172a 100%);
-            transition: transform 0.5s ease-in-out;
-        }
-        .screen.hidden { transform: translateY(-100%); }
+        #root { height: 100%; width: 100%; }
 
-        .card {
-            background: var(--panel); padding: 2rem; border-radius: 24px;
-            box-shadow: 0 20px 25px -5px rgba(0,0,0,0.5); text-align: center;
-            width: 90%; max-width: 400px; border: 1px solid rgba(255,255,255,0.1);
+        /* Board Container - The Core Responsive Logic */
+        .board-container {
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            width: 100%;
+            height: 100%;
+            padding: 10px;
         }
 
-        input {
-            background: #0f172a; border: 2px solid #334155; color: white;
-            padding: 12px; border-radius: 12px; font-size: 1.5rem;
-            width: 80%; text-align: center; letter-spacing: 4px; margin: 1rem 0;
+        .ludo-board {
+            display: grid;
+            grid-template-columns: repeat(15, 1fr);
+            grid-template-rows: repeat(15, 1fr);
+            aspect-ratio: 1/1;
+            background: white;
+            border: 2px solid #333;
+            box-shadow: 0 10px 30px rgba(0,0,0,0.5);
+            /* Responsive Magic: 95% of whichever is smaller (width or height) */
+            width: 95vmin; 
+            height: 95vmin;
+            max-width: 650px;
+            max-height: 650px;
         }
 
-        .btn {
-            padding: 12px 24px; border-radius: 12px; border: none; font-weight: bold;
-            cursor: pointer; transition: all 0.2s; text-transform: uppercase; margin: 5px;
-        }
-        .btn-primary { background: var(--blue); color: white; }
-        .btn-primary:hover { background: #0077e6; transform: translateY(-2px); }
-
-        /* --- Game Board --- */
-        #game-container {
-            flex: 1; display: flex; flex-direction: column; align-items: center; justify-content: center;
-            padding: 10px; position: relative;
+        .cell {
+            border: 0.5px solid rgba(0,0,0,0.1);
+            position: relative;
+            display: flex;
+            justify-content: center;
+            align-items: center;
         }
 
-        #board {
-            display: grid; grid-template-columns: repeat(15, 1fr); grid-template-rows: repeat(15, 1fr);
-            width: min(95vw, 600px); aspect-ratio: 1/1; background: #fff;
-            border: 8px solid #334155; border-radius: 12px; box-shadow: 0 25px 50px -12px rgba(0,0,0,0.5);
-            position: relative; overflow: hidden;
+        /* Safe Zones */
+        .safe-spot::after {
+            content: '★';
+            color: rgba(0,0,0,0.15);
+            font-size: 2vmin; /* Responsive font size */
+            position: absolute;
+            z-index: 0;
         }
 
-        .cell { border: 0.1px solid rgba(0,0,0,0.05); position: relative; }
-        .base { grid-column: span 6; grid-row: span 6; display: grid; place-items: center; padding: 20px; }
-        .base-inner { 
-            width: 100%; height: 100%; background: rgba(255,255,255,0.9); 
-            border-radius: 15%; display: grid; grid-template-columns: 1fr 1fr; gap: 10px; padding: 15px;
-        }
-        .base-spot { background: #e2e8f0; border-radius: 50%; box-shadow: inset 0 2px 4px rgba(0,0,0,0.1); }
-
-        .home-center { 
-            grid-column: 7/10; grid-row: 7/10; z-index: 5;
-            background: conic-gradient(var(--green) 90deg, var(--yellow) 90deg 180deg, var(--blue) 180deg 270deg, var(--red) 270deg);
-            border: 2px solid #334155; box-shadow: 0 0 15px rgba(0,0,0,0.2);
-        }
-
-        /* --- Tokens --- */
+        /* 3D Tokens */
         .token {
-            width: 80%; height: 80%; border-radius: 50%; position: absolute;
-            left: 10%; top: 10%; z-index: 10; cursor: pointer;
-            box-shadow: 0 4px 0 rgba(0,0,0,0.3); transition: all 0.3s cubic-bezier(0.18, 0.89, 0.32, 1.28);
-        }
-        .token::after {
-            content: ''; position: absolute; inset: 15%; border-radius: 50%;
-            background: rgba(255,255,255,0.3);
-        }
-        .token.red { background: var(--red); border: 2px solid #b91c1c; }
-        .token.green { background: var(--green); border: 2px solid #15803d; }
-        .token.yellow { background: var(--yellow); border: 2px solid #a16207; }
-        .token.blue { background: var(--blue); border: 2px solid #1d4ed8; }
-
-        .token.active { 
-            animation: pulse 1s infinite; z-index: 50; 
-            box-shadow: 0 0 15px white, 0 8px 0 rgba(0,0,0,0.2);
-            transform: translateY(-5px);
-        }
-        @keyframes pulse { 0%, 100% { transform: translateY(-5px) scale(1); } 50% { transform: translateY(-10px) scale(1.1); } }
-
-        /* --- Dice & Controls --- */
-        #controls {
-            width: min(95vw, 600px); display: flex; justify-content: space-between;
-            align-items: center; margin-top: 20px; padding: 15px; background: var(--panel);
-            border-radius: 20px; box-sizing: border-box;
+            width: 80%;
+            height: 80%;
+            border-radius: 50%;
+            position: absolute;
+            z-index: 10;
+            box-shadow: 
+                inset 0 2px 4px rgba(255,255,255,0.4),
+                inset 0 -2px 4px rgba(0,0,0,0.2),
+                1px 2px 4px rgba(0,0,0,0.4);
+            transition: all 0.3s cubic-bezier(0.175, 0.885, 0.32, 1.275);
+            cursor: pointer;
+            border: 1px solid rgba(255,255,255,0.3);
         }
 
-        #dice {
-            width: 60px; height: 60px; background: white; border-radius: 12px;
-            display: grid; place-items: center; font-size: 2rem; color: #1e293b;
-            cursor: pointer; box-shadow: 0 6px 0 #cbd5e1, 0 10px 15px rgba(0,0,0,0.3);
-            transition: all 0.1s;
+        .token.active-turn {
+            animation: bounce 1s infinite;
+            filter: brightness(1.2);
+            z-index: 20;
+            box-shadow: 0 0 10px currentColor;
         }
-        #dice:active { transform: translateY(4px); box-shadow: 0 2px 0 #cbd5e1; }
-        .rolling { animation: shake 0.2s infinite; }
-        @keyframes shake { 0% { transform: rotate(-5deg); } 50% { transform: rotate(5deg); } 100% { transform: rotate(-5deg); } }
-
-        .status-pill {
-            padding: 8px 16px; border-radius: 30px; background: #0f172a;
-            font-weight: bold; display: flex; align-items: center; gap: 8px;
+        
+        .token.can-move {
+            cursor: pointer;
+            animation: pulse-ring 1.5s infinite;
         }
 
-        /* --- Audio Visuals --- */
-        .floating-emoji {
-            position: fixed; font-size: 3rem; pointer-events: none; z-index: 1000;
-            animation: floatEmoji 2s ease-out forwards;
-        }
-        @keyframes floatEmoji {
-            0% { transform: translateY(0) scale(0); opacity: 0; }
-            20% { opacity: 1; transform: translateY(-20px) scale(1.2); }
-            100% { transform: translateY(-200px) scale(1); opacity: 0; }
+        @keyframes bounce {
+            0%, 100% { transform: translateY(0) scale(1); }
+            50% { transform: translateY(-15%) scale(1.1); }
         }
 
-        .voice-active { border: 2px solid var(--green) !important; color: var(--green) !important; }
+        @keyframes pulse-ring {
+            0% { box-shadow: 0 0 0 0px currentColor; }
+            100% { box-shadow: 0 0 0 6px rgba(255, 255, 255, 0); }
+        }
 
-        /* Special Tiles */
-        .safe { background: #f1f5f9; }
-        .safe::before { 
-            content: '★'; position: absolute; inset: 0; display: grid; 
-            place-items: center; color: #cbd5e1; font-size: 1.2rem;
+        /* Stacking Logic */
+        .stack-2 .token { width: 65%; height: 65%; }
+        .stack-3 .token { width: 55%; height: 55%; }
+        .stack-4 .token { width: 45%; height: 45%; }
+        
+        .stack-2 .token:nth-child(1) { transform: translate(-15%, -15%); }
+        .stack-2 .token:nth-child(2) { transform: translate(15%, 15%); }
+
+        /* Bases */
+        .base-area {
+            grid-row: span 6;
+            grid-column: span 6;
+            padding: 8%;
+            border: 2px solid #333;
+        }
+        .base-inner {
+            background: white;
+            width: 100%;
+            height: 100%;
+            border-radius: 15%;
+            display: grid;
+            grid-template-columns: 1fr 1fr;
+            grid-template-rows: 1fr 1fr;
+            padding: 15%;
+            gap: 15%;
+        }
+        .base-spot {
+            border-radius: 50%;
+            background: rgba(0,0,0,0.05);
+            box-shadow: inset 1px 1px 3px rgba(0,0,0,0.2);
+        }
+
+        /* Dice Animation */
+        .dice-container {
+            /* Floating Action Button style on mobile */
+            position: relative;
+            width: 60px;
+            height: 60px;
+            z-index: 50;
+        }
+
+        .dice-box {
+            perspective: 600px;
+            width: 100%;
+            height: 100%;
+        }
+        .dice {
+            width: 100%;
+            height: 100%;
+            position: relative;
+            transform-style: preserve-3d;
+            transition: transform 0.6s cubic-bezier(0.2, 0.8, 0.2, 1);
+        }
+        .dice-face {
+            position: absolute;
+            width: 60px;
+            height: 60px;
+            background: white;
+            border: 1px solid #ccc;
+            border-radius: 12px;
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            font-size: 24px;
+            font-weight: bold;
+            color: #333;
+            box-shadow: inset 0 0 10px rgba(0,0,0,0.1);
+            backface-visibility: hidden;
+        }
+        .df-1 { transform: rotateY(0deg) translateZ(30px); }
+        .df-2 { transform: rotateY(90deg) translateZ(30px); }
+        .df-3 { transform: rotateY(180deg) translateZ(30px); }
+        .df-4 { transform: rotateY(-90deg) translateZ(30px); }
+        .df-5 { transform: rotateX(90deg) translateZ(30px); }
+        .df-6 { transform: rotateX(-90deg) translateZ(30px); }
+
+        .rolling {
+            animation: roll-dice 0.4s linear infinite;
+        }
+        @keyframes roll-dice {
+            0% { transform: rotateX(0) rotateY(0); }
+            100% { transform: rotateX(360deg) rotateY(360deg); }
+        }
+
+        /* Emoji Floater */
+        .emoji-float {
+            position: fixed;
+            pointer-events: none;
+            animation: floatUp 2.5s ease-out forwards;
+            font-size: 3rem;
+            z-index: 100;
+            text-shadow: 0 2px 10px rgba(0,0,0,0.3);
+        }
+        @keyframes floatUp {
+            0% { transform: translateY(80vh) scale(0.5); opacity: 1; }
+            100% { transform: translateY(20vh) scale(1.5); opacity: 0; }
+        }
+
+        /* Modal / Overlay */
+        .modal-overlay {
+            position: fixed;
+            inset: 0;
+            background: rgba(0,0,0,0.8);
+            backdrop-filter: blur(5px);
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            z-index: 200;
+            padding: 20px;
+        }
+
+        /* Responsive UI Tweaks */
+        @media (min-width: 768px) {
+            .ludo-board { border-width: 4px; }
+            .base-area { border-width: 4px; }
+            .dice-container { width: 80px; height: 80px; }
+            .dice-face { width: 80px; height: 80px; font-size: 32px; }
+            .df-1 { transform: rotateY(0deg) translateZ(40px); }
+            .df-2 { transform: rotateY(90deg) translateZ(40px); }
+            .df-3 { transform: rotateY(180deg) translateZ(40px); }
+            .df-4 { transform: rotateY(-90deg) translateZ(40px); }
+            .df-5 { transform: rotateX(90deg) translateZ(40px); }
+            .df-6 { transform: rotateX(-90deg) translateZ(40px); }
         }
     </style>
 </head>
 <body>
 
-    <div id="lobby" class="screen">
-        <div class="card">
-            <h1 style="color: var(--yellow); margin-bottom: 0;">LUDO PRO</h1>
-            <p style="color: #94a3b8; margin-bottom: 2rem;">Tactile Realtime Multiplayer</p>
-            
-            <button class="btn btn-primary" style="width: 100%; padding: 15px;" onclick="initPeer(null)">Host New Game</button>
-            
-            <div style="margin: 20px 0; color: #64748b;">— OR —</div>
-            
-            <input type="text" id="joinCode" placeholder="ROOM CODE" maxlength="4">
-            <button class="btn btn-primary" style="width: 100%; padding: 15px;" onclick="joinRoom()">Join Room</button>
-            
-            <p id="status" style="margin-top: 20px; font-size: 0.9rem; color: var(--yellow);"></p>
-        </div>
-    </div>
+<div id="root"></div>
 
-    <div id="game-container">
-        <div id="board">
-            <!-- Bases -->
-            <div class="base" style="grid-area: 1/1/7/7; background: var(--red);"><div class="base-inner" id="base-red"></div></div>
-            <div class="base" style="grid-area: 1/10/7/16; background: var(--green);"><div class="base-inner" id="base-green"></div></div>
-            <div class="base" style="grid-area: 10/1/16/7; background: var(--blue);"><div class="base-inner" id="base-blue"></div></div>
-            <div class="base" style="grid-area: 10/10/16/16; background: var(--yellow);"><div class="base-inner" id="base-yellow"></div></div>
-            
-            <div class="home-center"></div>
-        </div>
+<script type="text/babel">
 
-        <div id="controls">
-            <div id="voice-toggle" class="btn" style="border: 2px solid #475569; color: #94a3b8;" onclick="toggleVoice()">🎤 VOICE</div>
-            <div class="status-pill">
-                <div id="player-dot" style="width:12px; height:12px; border-radius:50%; background: #475569;"></div>
-                <span id="player-msg">WAITING...</span>
-            </div>
-            <div id="dice" onclick="handleDiceClick()">🎲</div>
-        </div>
-        
-        <div style="margin-top: 20px; display: flex; gap: 15px;">
-            <button class="btn" onclick="sendEmoji('😂')">😂</button>
-            <button class="btn" onclick="sendEmoji('😡')">😡</button>
-            <button class="btn" onclick="sendEmoji('🎲')">🎲</button>
-            <button class="btn" onclick="sendEmoji('🔥')">🔥</button>
-        </div>
-        
-        <div id="room-id-tag" style="position:absolute; top:10px; right:10px; color:#475569; font-weight:bold;"></div>
-    </div>
-
-<script>
-/**
- * Ludo Pro Logic
- * Multi-room support via PeerJS scoped IDs
- */
-
-const SOUNDS = {
-    dice: new Audio('https://assets.mixkit.co/active_storage/sfx/2012/2012-preview.mp3'),
-    move: new Audio('https://assets.mixkit.co/active_storage/sfx/2044/2044-preview.mp3'),
-    capture: new Audio('https://assets.mixkit.co/active_storage/sfx/2530/2530-preview.mp3'),
-    home: new Audio('https://assets.mixkit.co/active_storage/sfx/2013/2013-preview.mp3')
+// --- Audio System ---
+const AudioEngine = {
+    ctx: null,
+    init: () => {
+        if (!AudioEngine.ctx) {
+            AudioEngine.ctx = new (window.AudioContext || window.webkitAudioContext)();
+        }
+        if (AudioEngine.ctx.state === 'suspended') {
+            AudioEngine.ctx.resume();
+        }
+    },
+    playTone: (freq, type, duration, vol = 0.1) => {
+        if (!AudioEngine.ctx) return;
+        const osc = AudioEngine.ctx.createOscillator();
+        const gain = AudioEngine.ctx.createGain();
+        osc.type = type;
+        osc.frequency.setValueAtTime(freq, AudioEngine.ctx.currentTime);
+        gain.gain.setValueAtTime(vol, AudioEngine.ctx.currentTime);
+        gain.gain.exponentialRampToValueAtTime(0.001, AudioEngine.ctx.currentTime + duration);
+        osc.connect(gain);
+        gain.connect(AudioEngine.ctx.destination);
+        osc.start();
+        osc.stop(AudioEngine.ctx.currentTime + duration);
+    },
+    roll: () => {
+        AudioEngine.init();
+        const now = AudioEngine.ctx.currentTime;
+        for(let i=0; i<8; i++) {
+            setTimeout(() => AudioEngine.playTone(200 + Math.random()*300, 'square', 0.05, 0.05), i*50);
+        }
+    },
+    move: () => {
+        AudioEngine.init();
+        AudioEngine.playTone(600, 'sine', 0.1);
+    },
+    capture: () => {
+        AudioEngine.init();
+        const osc = AudioEngine.ctx.createOscillator();
+        const gain = AudioEngine.ctx.createGain();
+        osc.frequency.setValueAtTime(800, AudioEngine.ctx.currentTime);
+        osc.frequency.exponentialRampToValueAtTime(100, AudioEngine.ctx.currentTime + 0.2);
+        gain.gain.setValueAtTime(0.2, AudioEngine.ctx.currentTime);
+        gain.gain.linearRampToValueAtTime(0, AudioEngine.ctx.currentTime + 0.2);
+        osc.connect(gain);
+        gain.connect(AudioEngine.ctx.destination);
+        osc.start();
+        osc.stop(AudioEngine.ctx.currentTime + 0.2);
+    },
+    safe: () => {
+        AudioEngine.init();
+        setTimeout(() => AudioEngine.playTone(400, 'sine', 0.2), 0);
+        setTimeout(() => AudioEngine.playTone(600, 'sine', 0.4), 100);
+    }
 };
 
-const PATH = [
-    {r:6,c:1},{r:6,c:2},{r:6,c:3},{r:6,c:4},{r:6,c:5},{r:5,c:6},{r:4,c:6},{r:3,c:6},{r:2,c:6},{r:1,c:6},{r:0,c:6},{r:0,c:7},{r:0,c:8},
-    {r:1,c:8},{r:2,c:8},{r:3,c:8},{r:4,c:8},{r:5,c:8},{r:6,c:9},{r:6,c:10},{r:6,c:11},{r:6,c:12},{r:6,c:13},{r:6,c:14},{r:7,c:14},{r:8,c:14},
-    {r:8,c:13},{r:8,c:12},{r:8,c:11},{r:8,c:10},{r:8,c:9},{r:9,c:8},{r:10,c:8},{r:11,c:8},{r:12,c:8},{r:13,c:8},{r:14,c:8},{r:14,c:7},{r:14,c:6},
-    {r:13,c:6},{r:12,c:6},{r:11,c:6},{r:10,c:6},{r:9,c:6},{r:8,c:5},{r:8,c:4},{r:8,c:3},{r:8,c:2},{r:8,c:1},{r:8,c:0},{r:7,c:0},{r:6,c:0}
+// --- Constants ---
+const COLORS = {
+    RED: '#ef4444',
+    GREEN: '#22c55e',
+    YELLOW: '#eab308',
+    BLUE: '#3b82f6'
+};
+
+const PLAYER_ORDER = ['RED', 'GREEN', 'YELLOW', 'BLUE'];
+
+// Visual Grid Mapping (simplified)
+const MAIN_PATH_COORDS = [
+    [6,1], [6,2], [6,3], [6,4], [6,5],
+    [5,6], [4,6], [3,6], [2,6], [1,6], [0,6],
+    [0,7], [0,8],
+    [1,8], [2,8], [3,8], [4,8], [5,8],
+    [6,9], [6,10], [6,11], [6,12], [6,13], [6,14],
+    [7,14], [8,14],
+    [8,13], [8,12], [8,11], [8,10], [8,9],
+    [9,8], [10,8], [11,8], [12,8], [13,8], [14,8],
+    [14,7], [14,6],
+    [13,6], [12,6], [11,6], [10,6], [9,6],
+    [8,5], [8,4], [8,3], [8,2], [8,1], [8,0],
+    [7,0], [6,0]
 ];
-const STAR_INDICES = [0, 8, 13, 21, 26, 34, 39, 47];
-const OFFSETS = { red: 0, green: 13, yellow: 26, blue: 39 };
 
-let peer = null;
-let connections = [];
-let hostConn = null;
-let isHost = false;
-let myColor = null;
-let roomCode = '';
-let localStream = null;
-
-let state = {
-    players: [],
-    turn: 0,
-    dice: 0,
-    phase: 'ROLL',
-    pieces: { red:[-1,-1,-1,-1], green:[-1,-1,-1,-1], yellow:[-1,-1,-1,-1], blue:[-1,-1,-1,-1] }
+const FINAL_PATHS = {
+    RED: [[7,1], [7,2], [7,3], [7,4], [7,5], [7,6]],
+    GREEN: [[1,7], [2,7], [3,7], [4,7], [5,7], [6,7]],
+    YELLOW: [[7,13], [7,12], [7,11], [7,10], [7,9], [7,8]],
+    BLUE: [[13,7], [12,7], [11,7], [10,7], [9,7], [8,7]]
 };
 
-// --- Initialization ---
-
-function generateBoard() {
-    const board = document.getElementById('board');
-    PATH.forEach((pos, i) => {
-        const cell = document.createElement('div');
-        cell.className = 'cell' + (STAR_INDICES.includes(i) ? ' safe' : '');
-        cell.id = `cell-${i}`;
-        cell.style.gridRow = pos.r + 1;
-        cell.style.gridColumn = pos.c + 1;
-        
-        // Coloring starts
-        if (i === 0) cell.style.background = 'var(--red)';
-        if (i === 13) cell.style.background = 'var(--green)';
-        if (i === 26) cell.style.background = 'var(--yellow)';
-        if (i === 39) cell.style.background = 'var(--blue)';
-        
-        board.appendChild(cell);
-    });
-
-    // Home paths
-    const colors = ['red', 'green', 'yellow', 'blue'];
-    colors.forEach(c => {
-        for(let i=0; i<4; i++) {
-            const spot = document.createElement('div');
-            spot.className = 'base-spot';
-            document.getElementById(`base-${c}`).appendChild(spot);
-        }
-    });
-}
-
-function initPeer(code) {
-    roomCode = code || Math.floor(1000 + Math.random() * 9000).toString();
-    isHost = !code;
-    const peerId = `LUDO-PRO-${roomCode}`;
-    
-    document.getElementById('status').innerText = "Connecting to network...";
-    peer = new Peer(peerId);
-
-    peer.on('open', () => {
-        document.getElementById('lobby').classList.add('hidden');
-        document.getElementById('room-id-tag').innerText = `ROOM: ${roomCode}`;
-        if (isHost) {
-            myColor = 'red';
-            state.players = ['red'];
-            updateUI();
-        }
-    });
-
-    peer.on('connection', conn => {
-        if (!isHost) return;
-        connections.push(conn);
-        const newColor = ['red','green','yellow','blue'][state.players.length];
-        state.players.push(newColor);
-        
-        conn.on('open', () => {
-            conn.send({ type: 'INIT', color: newColor, state });
-            sync();
-        });
-        conn.on('data', data => handleData(data, conn));
-    });
-
-    peer.on('call', call => {
-        call.answer(localStream);
-        call.on('stream', stream => playStream(stream));
-    });
-
-    peer.on('error', err => {
-        if (err.type === 'unavailable-id') {
-            alert("Room already exists or busy. Try another code.");
-            location.reload();
-        }
-    });
-
-    generateBoard();
-}
-
-function joinRoom() {
-    const code = document.getElementById('joinCode').value;
-    if (code.length !== 4) return alert("Enter 4-digit code");
-    initPeer(code);
-    
-    setTimeout(() => {
-        hostConn = peer.connect(`LUDO-PRO-${code}`);
-        hostConn.on('data', data => handleData(data));
-    }, 1000);
-}
+const SAFE_SPOTS = [0, 8, 13, 21, 26, 34, 39, 47];
 
 // --- Logic ---
+function getGlobalPathIndex(color, stepsMoved) {
+    if (stepsMoved === 0) return { type: 'base' };
+    
+    let offset = 0;
+    if (color === 'GREEN') offset = 13;
+    if (color === 'YELLOW') offset = 26;
+    if (color === 'BLUE') offset = 39;
 
-function handleData(data, sender) {
-    if (data.type === 'INIT') {
-        myColor = data.color;
-        state = data.state;
-        updateUI();
-    } else if (data.type === 'SYNC') {
-        state = data.state;
-        updateUI();
-        if (data.sound) SOUNDS[data.sound].play();
-    } else if (data.type === 'EMOJI') {
-        spawnEmoji(data.emoji);
-    } else if (isHost) {
-        if (data.type === 'ROLL') hostRoll();
-        if (data.type === 'MOVE') hostMove(data.idx);
+    let totalPos = stepsMoved - 1;
+    if (totalPos < 51) {
+        let mainIndex = (offset + totalPos) % 52;
+        return { type: 'main', index: mainIndex };
+    } else {
+        let homeIndex = totalPos - 51;
+        if (homeIndex > 5) return { type: 'win' };
+        return { type: 'home', index: homeIndex };
     }
 }
 
-function sync(sound = null) {
-    if (!isHost) return;
-    const payload = { type: 'SYNC', state, sound };
-    connections.forEach(c => c.send(payload));
-    updateUI();
-    if (sound) SOUNDS[sound].play();
+function getCoords(color, stepsMoved, pieceIdx) {
+    if (stepsMoved === 0) {
+        const bases = {
+            RED: [[2,2], [2,3], [3,2], [3,3]],
+            GREEN: [[2,11], [2,12], [3,11], [3,12]],
+            YELLOW: [[11,11], [11,12], [12,11], [12,12]],
+            BLUE: [[11,2], [11,3], [12,2], [12,3]]
+        };
+        return bases[color][pieceIdx];
+    }
+    let pos = getGlobalPathIndex(color, stepsMoved);
+    if (pos.type === 'main') return MAIN_PATH_COORDS[pos.index];
+    if (pos.type === 'home' || pos.type === 'win') {
+        let idx = Math.min(pos.index, 5);
+        return FINAL_PATHS[color][idx];
+    }
+    return [7,7];
 }
 
-function handleDiceClick() {
-    if (state.players[state.turn] !== myColor || state.phase !== 'ROLL') return;
-    if (isHost) hostRoll();
-    else hostConn.send({ type: 'ROLL' });
-}
+// --- Components ---
 
-function hostRoll() {
-    document.getElementById('dice').classList.add('rolling');
-    setTimeout(() => {
-        document.getElementById('dice').classList.remove('rolling');
-        state.dice = Math.floor(Math.random() * 6) + 1;
-        
-        const pColor = state.players[state.turn];
-        const canMove = state.pieces[pColor].some(pos => 
-            (pos === -1 && state.dice === 6) || (pos !== -1 && pos + state.dice <= 56)
-        );
+const EmojiFloater = ({ emojis }) => (
+    <>
+        {emojis.map(e => (
+            <div key={e.id} className="emoji-float" style={{ left: e.x + '%', top: e.y + '%' }}>
+                {e.char}
+            </div>
+        ))}
+    </>
+);
 
-        if (canMove) {
-            state.phase = 'MOVE';
-        } else {
-            state.phase = 'WAIT';
-            setTimeout(() => { nextTurn(); sync(); }, 1000);
-        }
-        sync('dice');
-    }, 600);
-}
+const App = () => {
+    // State
+    const [myId, setMyId] = React.useState(null);
+    const [roomCode, setRoomCode] = React.useState('');
+    const [isInGame, setIsInGame] = React.useState(false);
+    const [isHost, setIsHost] = React.useState(false);
+    const [players, setPlayers] = React.useState({}); 
+    const [gameState, setGameState] = React.useState({
+        turn: 'RED',
+        dice: 0,
+        pieces: { RED: [0,0,0,0], GREEN: [0,0,0,0], YELLOW: [0,0,0,0], BLUE: [0,0,0,0] },
+        winners: []
+    });
+    const [emojis, setEmojis] = React.useState([]);
+    const [micActive, setMicActive] = React.useState(false);
+    const [rolling, setRolling] = React.useState(false);
+    const [showEmojiMenu, setShowEmojiMenu] = React.useState(false);
 
-function handlePieceClick(idx) {
-    if (state.players[state.turn] !== myColor || state.phase !== 'MOVE') return;
-    if (isHost) hostMove(idx);
-    else hostConn.send({ type: 'MOVE', idx });
-}
-
-function hostMove(idx) {
-    const pColor = state.players[state.turn];
-    const cur = state.pieces[pColor][idx];
+    // Refs
+    const peerRef = React.useRef(null);
+    const connsRef = React.useRef([]);
     
-    if (cur === -1 && state.dice !== 6) return;
-    if (cur !== -1 && cur + state.dice > 56) return;
+    // Init PeerJS
+    React.useEffect(() => {
+        const initPeer = () => {
+            // Generate simple code
+            const id = Math.floor(1000 + Math.random() * 9000).toString(); 
+            const peer = new Peer(id);
+            
+            peer.on('open', (id) => {
+                setMyId(id);
+                setRoomCode(id);
+            });
 
-    state.pieces[pColor][idx] = (cur === -1) ? 0 : cur + state.dice;
-    
-    // Capture
-    const newPos = state.pieces[pColor][idx];
-    let captured = false;
-    if (newPos < 51) {
-        const globalIdx = (newPos + OFFSETS[pColor]) % 52;
-        if (!STAR_INDICES.includes(globalIdx)) {
-            state.players.forEach(c => {
-                if (c === pColor) return;
-                state.pieces[c].forEach((p, i) => {
-                    if (p > -1 && p < 51 && (p + OFFSETS[c]) % 52 === globalIdx) {
-                        state.pieces[c][i] = -1;
-                        captured = true;
-                    }
+            peer.on('error', (err) => {
+                console.log("Peer Error: ", err);
+                if(err.type === 'unavailable-id') initPeer(); 
+            });
+
+            peer.on('connection', (conn) => {
+                connsRef.current.push(conn);
+                setupDataConnection(conn);
+            });
+
+            peer.on('call', (call) => {
+                navigator.mediaDevices.getUserMedia({ audio: true }).then((stream) => {
+                    call.answer(stream); 
+                    call.on('stream', (remoteStream) => {
+                        const audio = new Audio();
+                        audio.srcObject = remoteStream;
+                        audio.play();
+                    });
                 });
             });
+
+            peerRef.current = peer;
+        };
+        initPeer();
+        return () => { if(peerRef.current) peerRef.current.destroy(); };
+    }, []);
+
+    // Networking
+    const setupDataConnection = (conn) => {
+        conn.on('data', (data) => handleData(data, conn.peer));
+        conn.on('open', () => { if (isHost) broadcastState(); });
+    };
+
+    const handleData = (data, senderId) => {
+        if (data.type === 'STATE_UPDATE') {
+            setGameState(data.state);
+            setPlayers(data.players);
+            if(data.sfx) AudioEngine[data.sfx]();
         }
-    }
-
-    if (captured) {
-        sync('capture');
-    } else if (state.dice === 6) {
-        state.phase = 'ROLL';
-        sync('move');
-    } else {
-        nextTurn();
-        sync('move');
-    }
-}
-
-function nextTurn() {
-    state.turn = (state.turn + 1) % state.players.length;
-    state.phase = 'ROLL';
-    state.dice = 0;
-}
-
-// --- UI ---
-
-function updateUI() {
-    const curColor = state.players[state.turn];
-    document.getElementById('player-dot').style.background = `var(--${curColor})`;
-    document.getElementById('player-msg').innerText = (curColor === myColor) ? "YOUR TURN" : `${curColor.toUpperCase()}'s TURN`;
-    document.getElementById('dice').innerText = state.dice || '🎲';
-
-    // Cleanup and re-render
-    document.querySelectorAll('.token').forEach(t => t.remove());
-    
-    state.players.forEach(color => {
-        state.pieces[color].forEach((pos, i) => {
-            const t = document.createElement('div');
-            t.className = `token ${color}`;
-            if (color === myColor && state.players[state.turn] === myColor && state.phase === 'MOVE') {
-                if ((pos === -1 && state.dice === 6) || (pos !== -1 && pos + state.dice <= 56)) {
-                    t.classList.add('active');
-                    t.onclick = () => handlePieceClick(i);
-                }
+        if (data.type === 'EMOJI') triggerEmoji(data.char);
+        
+        if (isHost) {
+            if (data.type === 'JOIN_REQUEST') {
+                const colorsAvailable = PLAYER_ORDER.filter(c => !Object.values(players).find(p => p.color === c));
+                const newPlayers = { ...players, [senderId]: { name: `Player ${Object.keys(players).length + 1}`, color: colorsAvailable[0] } };
+                setPlayers(newPlayers);
+                broadcastState(newPlayers);
             }
+            if (data.type === 'ROLL_DICE' && gameState.turn === players[senderId]?.color) performRoll();
+            if (data.type === 'MOVE_PIECE' && gameState.turn === players[senderId]?.color) performMove(data.pieceIdx);
+        }
+    };
 
-            let container;
-            if (pos === -1) {
-                container = document.getElementById(`base-${color}`).children[i];
-            } else if (pos >= 56) {
-                // Home - hide or put in center
-                return;
-            } else {
-                const gIdx = (pos + OFFSETS[color]) % 52;
-                container = document.getElementById(`cell-${gIdx}`);
-            }
+    const broadcastState = (updatedPlayers = players, sfx = null) => {
+        const payload = { type: 'STATE_UPDATE', state: gameState, players: updatedPlayers, sfx };
+        connsRef.current.forEach(conn => conn.send(payload));
+        setGameState(gameState);
+        setPlayers(updatedPlayers);
+        if(sfx) AudioEngine[sfx]();
+    };
+
+    // Game Logic (Host)
+    const performRoll = () => {
+        if (rolling) return;
+        setRolling(true);
+        AudioEngine.roll();
+        
+        setTimeout(() => {
+            const roll = Math.floor(Math.random() * 6) + 1;
+            setRolling(false);
+            const newState = { ...gameState, dice: roll };
             
-            if (container) container.appendChild(t);
-        });
-    });
-}
+            const playerColor = gameState.turn;
+            const pieces = newState.pieces[playerColor];
+            const canMove = pieces.some(p => canMovePiece(p, roll));
+            
+            setGameState(newState);
+            
+            if (!canMove) {
+                broadcastState(players, null);
+                setTimeout(() => nextTurn(newState), 800);
+            } else {
+                broadcastState(players, null);
+            }
+        }, 600);
+    };
 
-function spawnEmoji(emoji) {
-    const e = document.createElement('div');
-    e.className = 'floating-emoji';
-    e.innerText = emoji;
-    e.style.left = Math.random() * 80 + 10 + 'vw';
-    e.style.bottom = '20vh';
-    document.body.appendChild(e);
-    setTimeout(() => e.remove(), 2000);
-}
+    const canMovePiece = (steps, roll) => {
+        if (steps === 0 && roll !== 6) return false;
+        if (steps + roll > 57) return false;
+        return true;
+    };
 
-function sendEmoji(emoji) {
-    spawnEmoji(emoji);
-    const data = { type: 'EMOJI', emoji };
-    if (isHost) connections.forEach(c => c.send(data));
-    else hostConn.send(data);
-}
+    const performMove = (pieceIdx) => {
+        const color = gameState.turn;
+        const currentSteps = gameState.pieces[color][pieceIdx];
+        const roll = gameState.dice;
 
-// --- Voice ---
+        if (!canMovePiece(currentSteps, roll)) return;
 
-async function toggleVoice() {
-    const btn = document.getElementById('voice-toggle');
-    if (!localStream) {
-        localStream = await navigator.mediaDevices.getUserMedia({ audio: true });
-        btn.classList.add('voice-active');
-        if (isHost) connections.forEach(c => peer.call(c.peer, localStream));
-        else peer.call(hostConn.peer, localStream);
-    } else {
-        localStream.getAudioTracks()[0].enabled = !localStream.getAudioTracks()[0].enabled;
-        btn.classList.toggle('voice-active', localStream.getAudioTracks()[0].enabled);
-    }
-}
+        let newSteps = currentSteps === 0 ? 1 : currentSteps + roll;
+        let collision = null;
+        let sfx = 'move';
+        
+        const destPos = getGlobalPathIndex(color, newSteps);
+        
+        // Capture Logic
+        if (destPos.type === 'main' && !SAFE_SPOTS.includes(destPos.index)) {
+             PLAYER_ORDER.forEach(otherColor => {
+                 if (otherColor === color) return;
+                 gameState.pieces[otherColor].forEach((s, idx) => {
+                     const otherPos = getGlobalPathIndex(otherColor, s);
+                     if (otherPos.type === 'main' && otherPos.index === destPos.index) {
+                         collision = { color: otherColor, idx: idx };
+                     }
+                 });
+             });
+        }
 
-function playStream(stream) {
-    const audio = document.createElement('audio');
-    audio.srcObject = stream;
-    audio.play();
-}
+        const newPieces = { ...gameState.pieces };
+        newPieces[color] = [...newPieces[color]];
+        newPieces[color][pieceIdx] = newSteps;
 
-</script>
-</body>
-</html>
+        if (collision) {
+            newPieces[collision.color][collision.idx] = 0; 
+            sfx = 'capture';
+        } else if (newSteps === 57 || SAFE_SPOTS.includes(destPos.index)) {
+            sfx = 'safe';
+        }
 
+        const newState = { ...gameState, pieces: newPieces, dice: 0 };
+        setGameState(newState);
+        
+        if (roll === 6 || collision || newSteps === 57) {
+            broadcastState(players, sfx);
+        } else {
+            broadcastState(players, sfx);
+            nextTurn(newState);
+        }
+    };
+
+    const nextTurn = (currentState) => {
+        let nextIdx = (PLAYER_ORDER.indexOf(currentState.turn) + 1) % 4;
+        let loop = 0;
+        while(loop < 4) {
+            const nextColor = PLAYER_ORDER[nextIdx];
+            if (Object.values(players).find(p => p.color === nextColor)) {
+                const newState = { ...currentState, turn: nextColor, dice: 0 };
+                setGameState(newState);
+                broadcastState(players);
+                return;
+            }
+            nextIdx = (nextIdx + 1) % 4;
+            loop++;
+        }
+    };
+
+    // Interactions
+    const handleDiceClick = () => {
+        if (!isHost) sendToHost({ type: 'ROLL_DICE' });
+        else if (gameState.turn === players[myId]?.color) performRoll();
+    };
+
+    const handlePieceClick = (color, idx) => {
+        if (gameState.dice === 0) return;
+        if (color !== players[myId]?.color) return;
+  
