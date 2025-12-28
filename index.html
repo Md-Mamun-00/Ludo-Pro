@@ -4,44 +4,59 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover">
     <title>Ludo Pro Realtime</title>
-    <meta name="theme-color" content="#1f2937">
-    <meta name="description" content="Realtime Multiplayer Ludo">
     
-    <!-- Libraries -->
-    <script src="https://unpkg.com/react@18/umd/react.production.min.js" crossorigin></script>
-    <script src="https://unpkg.com/react-dom@18/umd/react-dom.production.min.js" crossorigin></script>
-    <script src="https://unpkg.com/@babel/standalone/babel.min.js"></script>
-    <script src="https://unpkg.com/peerjs@1.5.2/dist/peerjs.min.js"></script>
+    <!-- 1. Global Error Handler: Shows errors on screen if game fails to load -->
+    <script>
+        window.onerror = function(msg, url, line, col, error) {
+            const div = document.createElement('div');
+            div.style.cssText = 'position:fixed;top:0;left:0;width:100%;background:red;color:white;padding:20px;z-index:9999;font-family:sans-serif;word-break:break-word;';
+            div.innerHTML = '<h3>Game Error</h3><p>' + msg + '</p><p>Line: ' + line + '</p>';
+            document.body.appendChild(div);
+            return false;
+        };
+    </script>
+
+    <!-- 2. Robust CDNs (Cloudflare) -->
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/react/18.2.0/umd/react.production.min.js"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/react-dom/18.2.0/umd/react-dom.production.min.js"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/babel-standalone/7.23.5/babel.min.js"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/peerjs/1.5.2/peerjs.min.js"></script>
     <script src="https://cdn.tailwindcss.com"></script>
     <link href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css" rel="stylesheet">
 
     <style>
         @import url('https://fonts.googleapis.com/css2?family=Fredoka:wght@400;600;700&display=swap');
 
-        /* Reset & Base */
         * { box-sizing: border-box; -webkit-tap-highlight-color: transparent; }
         body {
             font-family: 'Fredoka', sans-serif;
-            background: #111827; /* gray-900 */
+            background: #111827;
             color: white;
             overflow: hidden;
             touch-action: none;
-            height: 100dvh; /* dynamic viewport height */
+            height: 100vh;
             width: 100vw;
             margin: 0;
             padding: 0;
+            /* Prevent pull-to-refresh on mobile */
+            overscroll-behavior: none;
         }
 
-        #root { height: 100%; width: 100%; }
+        /* Loading Spinner */
+        #loading {
+            position: fixed; inset: 0; display: flex; flex-direction: column; 
+            align-items: center; justify-content: center; background: #111827; z-index: 50;
+        }
+        .spinner {
+            width: 50px; height: 50px; border: 5px solid #333; 
+            border-top-color: #3b82f6; border-radius: 50%; animation: spin 1s linear infinite;
+        }
+        @keyframes spin { to { transform: rotate(360deg); } }
 
-        /* Board Container - The Core Responsive Logic */
+        /* Board - Responsive Logic */
         .board-container {
-            display: flex;
-            justify-content: center;
-            align-items: center;
-            width: 100%;
-            height: 100%;
-            padding: 10px;
+            display: flex; justify-content: center; align-items: center;
+            width: 100%; height: 100%; padding: 10px;
         }
 
         .ludo-board {
@@ -52,212 +67,89 @@
             background: white;
             border: 2px solid #333;
             box-shadow: 0 10px 30px rgba(0,0,0,0.5);
-            /* Responsive Magic: 95% of whichever is smaller (width or height) */
-            width: 95vmin; 
-            height: 95vmin;
-            max-width: 650px;
-            max-height: 650px;
+            width: 95vmin; height: 95vmin; /* Fits both portrait and landscape */
+            max-width: 650px; max-height: 650px;
         }
 
         .cell {
             border: 0.5px solid rgba(0,0,0,0.1);
-            position: relative;
-            display: flex;
-            justify-content: center;
-            align-items: center;
+            position: relative; display: flex; justify-content: center; align-items: center;
         }
-
-        /* Safe Zones */
         .safe-spot::after {
-            content: '★';
-            color: rgba(0,0,0,0.15);
-            font-size: 2vmin; /* Responsive font size */
-            position: absolute;
-            z-index: 0;
+            content: '★'; color: rgba(0,0,0,0.15); font-size: 2vmin; position: absolute; z-index: 0;
         }
 
-        /* 3D Tokens */
+        /* Tokens */
         .token {
-            width: 80%;
-            height: 80%;
-            border-radius: 50%;
-            position: absolute;
-            z-index: 10;
-            box-shadow: 
-                inset 0 2px 4px rgba(255,255,255,0.4),
-                inset 0 -2px 4px rgba(0,0,0,0.2),
-                1px 2px 4px rgba(0,0,0,0.4);
+            width: 80%; height: 80%; border-radius: 50%; position: absolute; z-index: 10;
+            box-shadow: inset 0 2px 4px rgba(255,255,255,0.4), inset 0 -2px 4px rgba(0,0,0,0.2), 1px 2px 4px rgba(0,0,0,0.4);
             transition: all 0.3s cubic-bezier(0.175, 0.885, 0.32, 1.275);
-            cursor: pointer;
             border: 1px solid rgba(255,255,255,0.3);
         }
+        .token.active-turn { animation: bounce 1s infinite; filter: brightness(1.2); z-index: 20; box-shadow: 0 0 10px currentColor; }
+        .token.can-move { cursor: pointer; animation: pulse-ring 1.5s infinite; }
 
-        .token.active-turn {
-            animation: bounce 1s infinite;
-            filter: brightness(1.2);
-            z-index: 20;
-            box-shadow: 0 0 10px currentColor;
-        }
-        
-        .token.can-move {
-            cursor: pointer;
-            animation: pulse-ring 1.5s infinite;
-        }
+        @keyframes bounce { 0%, 100% { transform: translateY(0) scale(1); } 50% { transform: translateY(-15%) scale(1.1); } }
+        @keyframes pulse-ring { 0% { box-shadow: 0 0 0 0px currentColor; } 100% { box-shadow: 0 0 0 6px rgba(255, 255, 255, 0); } }
 
-        @keyframes bounce {
-            0%, 100% { transform: translateY(0) scale(1); }
-            50% { transform: translateY(-15%) scale(1.1); }
-        }
-
-        @keyframes pulse-ring {
-            0% { box-shadow: 0 0 0 0px currentColor; }
-            100% { box-shadow: 0 0 0 6px rgba(255, 255, 255, 0); }
-        }
-
-        /* Stacking Logic */
-        .stack-2 .token { width: 65%; height: 65%; }
-        .stack-3 .token { width: 55%; height: 55%; }
-        .stack-4 .token { width: 45%; height: 45%; }
-        
-        .stack-2 .token:nth-child(1) { transform: translate(-15%, -15%); }
-        .stack-2 .token:nth-child(2) { transform: translate(15%, 15%); }
+        /* Stacking */
+        .stack-2 .token { width: 65%; height: 65%; } .stack-2 .token:nth-child(1) { transform: translate(-15%, -15%); } .stack-2 .token:nth-child(2) { transform: translate(15%, 15%); }
+        .stack-3 .token { width: 55%; height: 55%; } .stack-4 .token { width: 45%; height: 45%; }
 
         /* Bases */
-        .base-area {
-            grid-row: span 6;
-            grid-column: span 6;
-            padding: 8%;
-            border: 2px solid #333;
-        }
-        .base-inner {
-            background: white;
-            width: 100%;
-            height: 100%;
-            border-radius: 15%;
-            display: grid;
-            grid-template-columns: 1fr 1fr;
-            grid-template-rows: 1fr 1fr;
-            padding: 15%;
-            gap: 15%;
-        }
-        .base-spot {
-            border-radius: 50%;
-            background: rgba(0,0,0,0.05);
-            box-shadow: inset 1px 1px 3px rgba(0,0,0,0.2);
-        }
+        .base-area { grid-row: span 6; grid-column: span 6; padding: 8%; border: 2px solid #333; }
+        .base-inner { background: white; width: 100%; height: 100%; border-radius: 15%; display: grid; grid-template-columns: 1fr 1fr; grid-template-rows: 1fr 1fr; padding: 15%; gap: 15%; }
+        .base-spot { border-radius: 50%; background: rgba(0,0,0,0.05); }
 
-        /* Dice Animation */
-        .dice-container {
-            /* Floating Action Button style on mobile */
-            position: relative;
-            width: 60px;
-            height: 60px;
-            z-index: 50;
-        }
+        /* Dice */
+        .dice-container { position: relative; width: 60px; height: 60px; z-index: 50; }
+        .dice-box { perspective: 600px; width: 100%; height: 100%; }
+        .dice { width: 100%; height: 100%; position: relative; transform-style: preserve-3d; transition: transform 0.6s cubic-bezier(0.2, 0.8, 0.2, 1); }
+        .dice-face { position: absolute; width: 60px; height: 60px; background: white; border: 1px solid #ccc; border-radius: 12px; display: flex; justify-content: center; align-items: center; font-size: 24px; font-weight: bold; color: #333; backface-visibility: hidden; }
+        .df-1 { transform: rotateY(0deg) translateZ(30px); } .df-2 { transform: rotateY(90deg) translateZ(30px); } .df-3 { transform: rotateY(180deg) translateZ(30px); }
+        .df-4 { transform: rotateY(-90deg) translateZ(30px); } .df-5 { transform: rotateX(90deg) translateZ(30px); } .df-6 { transform: rotateX(-90deg) translateZ(30px); }
+        .rolling { animation: roll-dice 0.4s linear infinite; }
+        @keyframes roll-dice { 0% { transform: rotateX(0) rotateY(0); } 100% { transform: rotateX(360deg) rotateY(360deg); } }
 
-        .dice-box {
-            perspective: 600px;
-            width: 100%;
-            height: 100%;
-        }
-        .dice {
-            width: 100%;
-            height: 100%;
-            position: relative;
-            transform-style: preserve-3d;
-            transition: transform 0.6s cubic-bezier(0.2, 0.8, 0.2, 1);
-        }
-        .dice-face {
-            position: absolute;
-            width: 60px;
-            height: 60px;
-            background: white;
-            border: 1px solid #ccc;
-            border-radius: 12px;
-            display: flex;
-            justify-content: center;
-            align-items: center;
-            font-size: 24px;
-            font-weight: bold;
-            color: #333;
-            box-shadow: inset 0 0 10px rgba(0,0,0,0.1);
-            backface-visibility: hidden;
-        }
-        .df-1 { transform: rotateY(0deg) translateZ(30px); }
-        .df-2 { transform: rotateY(90deg) translateZ(30px); }
-        .df-3 { transform: rotateY(180deg) translateZ(30px); }
-        .df-4 { transform: rotateY(-90deg) translateZ(30px); }
-        .df-5 { transform: rotateX(90deg) translateZ(30px); }
-        .df-6 { transform: rotateX(-90deg) translateZ(30px); }
+        /* Emojis */
+        .emoji-float { position: fixed; pointer-events: none; animation: floatUp 2.5s ease-out forwards; font-size: 3rem; z-index: 100; text-shadow: 0 2px 10px rgba(0,0,0,0.3); }
+        @keyframes floatUp { 0% { transform: translateY(80vh) scale(0.5); opacity: 1; } 100% { transform: translateY(20vh) scale(1.5); opacity: 0; } }
 
-        .rolling {
-            animation: roll-dice 0.4s linear infinite;
-        }
-        @keyframes roll-dice {
-            0% { transform: rotateX(0) rotateY(0); }
-            100% { transform: rotateX(360deg) rotateY(360deg); }
-        }
-
-        /* Emoji Floater */
-        .emoji-float {
-            position: fixed;
-            pointer-events: none;
-            animation: floatUp 2.5s ease-out forwards;
-            font-size: 3rem;
-            z-index: 100;
-            text-shadow: 0 2px 10px rgba(0,0,0,0.3);
-        }
-        @keyframes floatUp {
-            0% { transform: translateY(80vh) scale(0.5); opacity: 1; }
-            100% { transform: translateY(20vh) scale(1.5); opacity: 0; }
-        }
-
-        /* Modal / Overlay */
-        .modal-overlay {
-            position: fixed;
-            inset: 0;
-            background: rgba(0,0,0,0.8);
-            backdrop-filter: blur(5px);
-            display: flex;
-            align-items: center;
-            justify-content: center;
-            z-index: 200;
-            padding: 20px;
-        }
-
-        /* Responsive UI Tweaks */
         @media (min-width: 768px) {
-            .ludo-board { border-width: 4px; }
-            .base-area { border-width: 4px; }
-            .dice-container { width: 80px; height: 80px; }
-            .dice-face { width: 80px; height: 80px; font-size: 32px; }
-            .df-1 { transform: rotateY(0deg) translateZ(40px); }
-            .df-2 { transform: rotateY(90deg) translateZ(40px); }
-            .df-3 { transform: rotateY(180deg) translateZ(40px); }
-            .df-4 { transform: rotateY(-90deg) translateZ(40px); }
-            .df-5 { transform: rotateX(90deg) translateZ(40px); }
-            .df-6 { transform: rotateX(-90deg) translateZ(40px); }
+            .dice-container { width: 80px; height: 80px; } .dice-face { width: 80px; height: 80px; font-size: 32px; }
+            .df-1 { transform: rotateY(0deg) translateZ(40px); } .df-2 { transform: rotateY(90deg) translateZ(40px); } .df-3 { transform: rotateY(180deg) translateZ(40px); }
+            .df-4 { transform: rotateY(-90deg) translateZ(40px); } .df-5 { transform: rotateX(90deg) translateZ(40px); } .df-6 { transform: rotateX(-90deg) translateZ(40px); }
         }
     </style>
 </head>
 <body>
 
+<!-- Initial Loading Screen (Removed by React when loaded) -->
+<div id="loading">
+    <div class="spinner"></div>
+    <p style="margin-top: 20px; color: #6b7280;">Loading Ludo Engine...</p>
+</div>
+
 <div id="root"></div>
 
-<script type="text/babel">
+<!-- Data-presets ensures Babel parses JSX correctly -->
+<script type="text/babel" data-presets="react,env">
 
-// --- Audio System ---
+// --- Config ---
+const COLORS = { RED: '#ef4444', GREEN: '#22c55e', YELLOW: '#eab308', BLUE: '#3b82f6' };
+const PLAYER_ORDER = ['RED', 'GREEN', 'YELLOW', 'BLUE'];
+const SAFE_SPOTS = [0, 8, 13, 21, 26, 34, 39, 47];
+
+// --- Audio ---
 const AudioEngine = {
     ctx: null,
     init: () => {
-        if (!AudioEngine.ctx) {
-            AudioEngine.ctx = new (window.AudioContext || window.webkitAudioContext)();
-        }
-        if (AudioEngine.ctx.state === 'suspended') {
-            AudioEngine.ctx.resume();
-        }
+        try {
+            if (!AudioEngine.ctx) AudioEngine.ctx = new (window.AudioContext || window.webkitAudioContext)();
+            if (AudioEngine.ctx.state === 'suspended') AudioEngine.ctx.resume();
+        } catch(e) { console.log("Audio init failed", e); }
     },
-    playTone: (freq, type, duration, vol = 0.1) => {
+    playTone: (freq, type, duration, vol=0.1) => {
         if (!AudioEngine.ctx) return;
         const osc = AudioEngine.ctx.createOscillator();
         const gain = AudioEngine.ctx.createGain();
@@ -270,321 +162,255 @@ const AudioEngine = {
         osc.start();
         osc.stop(AudioEngine.ctx.currentTime + duration);
     },
-    roll: () => {
-        AudioEngine.init();
-        const now = AudioEngine.ctx.currentTime;
-        for(let i=0; i<8; i++) {
-            setTimeout(() => AudioEngine.playTone(200 + Math.random()*300, 'square', 0.05, 0.05), i*50);
-        }
-    },
-    move: () => {
-        AudioEngine.init();
-        AudioEngine.playTone(600, 'sine', 0.1);
-    },
-    capture: () => {
-        AudioEngine.init();
-        const osc = AudioEngine.ctx.createOscillator();
-        const gain = AudioEngine.ctx.createGain();
-        osc.frequency.setValueAtTime(800, AudioEngine.ctx.currentTime);
-        osc.frequency.exponentialRampToValueAtTime(100, AudioEngine.ctx.currentTime + 0.2);
-        gain.gain.setValueAtTime(0.2, AudioEngine.ctx.currentTime);
-        gain.gain.linearRampToValueAtTime(0, AudioEngine.ctx.currentTime + 0.2);
-        osc.connect(gain);
-        gain.connect(AudioEngine.ctx.destination);
-        osc.start();
-        osc.stop(AudioEngine.ctx.currentTime + 0.2);
-    },
-    safe: () => {
-        AudioEngine.init();
-        setTimeout(() => AudioEngine.playTone(400, 'sine', 0.2), 0);
-        setTimeout(() => AudioEngine.playTone(600, 'sine', 0.4), 100);
-    }
+    roll: () => { AudioEngine.init(); for(let i=0; i<8; i++) setTimeout(() => AudioEngine.playTone(200+Math.random()*300, 'square', 0.05, 0.05), i*50); },
+    move: () => { AudioEngine.init(); AudioEngine.playTone(600, 'sine', 0.1); },
+    capture: () => { AudioEngine.init(); AudioEngine.playTone(150, 'sawtooth', 0.4); },
+    safe: () => { AudioEngine.init(); AudioEngine.playTone(400, 'sine', 0.2); setTimeout(()=>AudioEngine.playTone(600,'sine',0.4), 100); }
 };
 
-// --- Constants ---
-const COLORS = {
-    RED: '#ef4444',
-    GREEN: '#22c55e',
-    YELLOW: '#eab308',
-    BLUE: '#3b82f6'
-};
-
-const PLAYER_ORDER = ['RED', 'GREEN', 'YELLOW', 'BLUE'];
-
-// Visual Grid Mapping (simplified)
+// --- Logic Helpers ---
 const MAIN_PATH_COORDS = [
-    [6,1], [6,2], [6,3], [6,4], [6,5],
-    [5,6], [4,6], [3,6], [2,6], [1,6], [0,6],
-    [0,7], [0,8],
-    [1,8], [2,8], [3,8], [4,8], [5,8],
-    [6,9], [6,10], [6,11], [6,12], [6,13], [6,14],
-    [7,14], [8,14],
-    [8,13], [8,12], [8,11], [8,10], [8,9],
-    [9,8], [10,8], [11,8], [12,8], [13,8], [14,8],
-    [14,7], [14,6],
-    [13,6], [12,6], [11,6], [10,6], [9,6],
-    [8,5], [8,4], [8,3], [8,2], [8,1], [8,0],
-    [7,0], [6,0]
+    [6,1],[6,2],[6,3],[6,4],[6,5],[5,6],[4,6],[3,6],[2,6],[1,6],[0,6],[0,7],[0,8],
+    [1,8],[2,8],[3,8],[4,8],[5,8],[6,9],[6,10],[6,11],[6,12],[6,13],[6,14],[7,14],[8,14],
+    [8,13],[8,12],[8,11],[8,10],[8,9],[9,8],[10,8],[11,8],[12,8],[13,8],[14,8],[14,7],[14,6],
+    [13,6],[12,6],[11,6],[10,6],[9,6],[8,5],[8,4],[8,3],[8,2],[8,1],[8,0],[7,0],[6,0]
 ];
-
 const FINAL_PATHS = {
-    RED: [[7,1], [7,2], [7,3], [7,4], [7,5], [7,6]],
-    GREEN: [[1,7], [2,7], [3,7], [4,7], [5,7], [6,7]],
-    YELLOW: [[7,13], [7,12], [7,11], [7,10], [7,9], [7,8]],
-    BLUE: [[13,7], [12,7], [11,7], [10,7], [9,7], [8,7]]
+    RED: [[7,1],[7,2],[7,3],[7,4],[7,5],[7,6]],
+    GREEN: [[1,7],[2,7],[3,7],[4,7],[5,7],[6,7]],
+    YELLOW: [[7,13],[7,12],[7,11],[7,10],[7,9],[7,8]],
+    BLUE: [[13,7],[12,7],[11,7],[10,7],[9,7],[8,7]]
 };
 
-const SAFE_SPOTS = [0, 8, 13, 21, 26, 34, 39, 47];
-
-// --- Logic ---
 function getGlobalPathIndex(color, stepsMoved) {
     if (stepsMoved === 0) return { type: 'base' };
-    
     let offset = 0;
     if (color === 'GREEN') offset = 13;
     if (color === 'YELLOW') offset = 26;
     if (color === 'BLUE') offset = 39;
-
     let totalPos = stepsMoved - 1;
     if (totalPos < 51) {
         let mainIndex = (offset + totalPos) % 52;
         return { type: 'main', index: mainIndex };
     } else {
-        let homeIndex = totalPos - 51;
-        if (homeIndex > 5) return { type: 'win' };
-        return { type: 'home', index: homeIndex };
+        return { type: 'home', index: totalPos - 51 };
     }
 }
 
 function getCoords(color, stepsMoved, pieceIdx) {
     if (stepsMoved === 0) {
         const bases = {
-            RED: [[2,2], [2,3], [3,2], [3,3]],
-            GREEN: [[2,11], [2,12], [3,11], [3,12]],
-            YELLOW: [[11,11], [11,12], [12,11], [12,12]],
-            BLUE: [[11,2], [11,3], [12,2], [12,3]]
+            RED: [[2,2],[2,3],[3,2],[3,3]], GREEN: [[2,11],[2,12],[3,11],[3,12]],
+            YELLOW: [[11,11],[11,12],[12,11],[12,12]], BLUE: [[11,2],[11,3],[12,2],[12,3]]
         };
         return bases[color][pieceIdx];
     }
     let pos = getGlobalPathIndex(color, stepsMoved);
-    if (pos.type === 'main') return MAIN_PATH_COORDS[pos.index];
-    if (pos.type === 'home' || pos.type === 'win') {
-        let idx = Math.min(pos.index, 5);
-        return FINAL_PATHS[color][idx];
-    }
+    if (pos.type === 'main') return MAIN_PATH_COORDS[pos.index] || [7,7];
+    if (pos.type === 'home') return FINAL_PATHS[color][Math.min(pos.index, 5)] || [7,7];
     return [7,7];
 }
 
-// --- Components ---
-
+// --- Components (Defined Outside App for Stability) ---
 const EmojiFloater = ({ emojis }) => (
-    <>
-        {emojis.map(e => (
-            <div key={e.id} className="emoji-float" style={{ left: e.x + '%', top: e.y + '%' }}>
-                {e.char}
-            </div>
-        ))}
-    </>
+    <React.Fragment>
+        {emojis.map(e => <div key={e.id} className="emoji-float" style={{ left: e.x + '%', top: e.y + '%' }}>{e.char}</div>)}
+    </React.Fragment>
 );
 
+const Token = ({ color, active, onClick }) => (
+    <div className={`token ${active ? 'can-move active-turn' : ''}`}
+        style={{ backgroundColor: COLORS[color] }}
+        onClick={(e) => { e.stopPropagation(); onClick(); }}>
+    </div>
+);
+
+const Base = ({ color, pieces, dice, turn, myColor, onPieceClick }) => (
+    <div className="base-inner">
+        {pieces.map((steps, i) => (
+            <div key={i} className="base-spot flex justify-center items-center relative">
+                {steps === 0 && <Token color={color} active={dice === 6 && myColor === color && turn === color} onClick={() => onPieceClick(color, i)} />}
+            </div>
+        ))}
+    </div>
+);
+
+// --- Main App ---
 const App = () => {
-    // State
+    const [loading, setLoading] = React.useState(true);
     const [myId, setMyId] = React.useState(null);
     const [roomCode, setRoomCode] = React.useState('');
     const [isInGame, setIsInGame] = React.useState(false);
     const [isHost, setIsHost] = React.useState(false);
-    const [players, setPlayers] = React.useState({}); 
+    const [players, setPlayers] = React.useState({});
     const [gameState, setGameState] = React.useState({
-        turn: 'RED',
-        dice: 0,
-        pieces: { RED: [0,0,0,0], GREEN: [0,0,0,0], YELLOW: [0,0,0,0], BLUE: [0,0,0,0] },
-        winners: []
+        turn: 'RED', dice: 0,
+        pieces: { RED: [0,0,0,0], GREEN: [0,0,0,0], YELLOW: [0,0,0,0], BLUE: [0,0,0,0] }
     });
     const [emojis, setEmojis] = React.useState([]);
     const [micActive, setMicActive] = React.useState(false);
     const [rolling, setRolling] = React.useState(false);
     const [showEmojiMenu, setShowEmojiMenu] = React.useState(false);
 
-    // Refs
     const peerRef = React.useRef(null);
     const connsRef = React.useRef([]);
-    
-    // Init PeerJS
+
+    // Remove loading spinner once React mounts
     React.useEffect(() => {
-        const initPeer = () => {
-            // Generate simple code
-            const id = Math.floor(1000 + Math.random() * 9000).toString(); 
-            const peer = new Peer(id);
-            
-            peer.on('open', (id) => {
-                setMyId(id);
-                setRoomCode(id);
-            });
-
-            peer.on('error', (err) => {
-                console.log("Peer Error: ", err);
-                if(err.type === 'unavailable-id') initPeer(); 
-            });
-
-            peer.on('connection', (conn) => {
-                connsRef.current.push(conn);
-                setupDataConnection(conn);
-            });
-
-            peer.on('call', (call) => {
-                navigator.mediaDevices.getUserMedia({ audio: true }).then((stream) => {
-                    call.answer(stream); 
-                    call.on('stream', (remoteStream) => {
-                        const audio = new Audio();
-                        audio.srcObject = remoteStream;
-                        audio.play();
-                    });
-                });
-            });
-
-            peerRef.current = peer;
-        };
-        initPeer();
-        return () => { if(peerRef.current) peerRef.current.destroy(); };
+        const loader = document.getElementById('loading');
+        if(loader) loader.style.display = 'none';
     }, []);
 
-    // Networking
-    const setupDataConnection = (conn) => {
-        conn.on('data', (data) => handleData(data, conn.peer));
-        conn.on('open', () => { if (isHost) broadcastState(); });
-    };
+    React.useEffect(() => {
+        try {
+            const id = Math.floor(1000 + Math.random() * 9000).toString();
+            const peer = new Peer(id);
+            peer.on('open', (id) => { setMyId(id); setRoomCode(id); });
+            peer.on('error', (err) => console.log('Peer Error:', err));
+            peer.on('connection', (conn) => {
+                connsRef.current.push(conn);
+                conn.on('data', (data) => handleData(data, conn.peer));
+                conn.on('open', () => { if(isHost) broadcastState(); });
+            });
+            peer.on('call', (call) => {
+                navigator.mediaDevices.getUserMedia({audio:true}).then(stream => {
+                    call.answer(stream);
+                    call.on('stream', remoteStream => { const a = new Audio(); a.srcObject = remoteStream; a.play(); });
+                }).catch(e => console.log('Mic denied'));
+            });
+            peerRef.current = peer;
+        } catch(e) { console.error("Peer init failed", e); }
+        return () => { if(peerRef.current) peerRef.current.destroy(); }
+    }, [isHost]); // Re-init on role change isn't needed usually, but safe for simple logic
 
     const handleData = (data, senderId) => {
-        if (data.type === 'STATE_UPDATE') {
-            setGameState(data.state);
-            setPlayers(data.players);
+        if(data.type === 'STATE') {
+            setGameState(data.state); setPlayers(data.players);
             if(data.sfx) AudioEngine[data.sfx]();
         }
-        if (data.type === 'EMOJI') triggerEmoji(data.char);
+        if(data.type === 'EMOJI') triggerEmoji(data.char);
         
-        if (isHost) {
-            if (data.type === 'JOIN_REQUEST') {
-                const colorsAvailable = PLAYER_ORDER.filter(c => !Object.values(players).find(p => p.color === c));
-                const newPlayers = { ...players, [senderId]: { name: `Player ${Object.keys(players).length + 1}`, color: colorsAvailable[0] } };
-                setPlayers(newPlayers);
-                broadcastState(newPlayers);
+        if(isHost) {
+            if(data.type === 'JOIN') {
+                const usedColors = Object.values(players).map(p => p.color);
+                const nextColor = PLAYER_ORDER.find(c => !usedColors.includes(c));
+                if(nextColor) {
+                    const newPlayers = { ...players, [senderId]: { name: 'P'+(Object.keys(players).length+1), color: nextColor } };
+                    setPlayers(newPlayers);
+                    broadcastState(newPlayers);
+                }
             }
-            if (data.type === 'ROLL_DICE' && gameState.turn === players[senderId]?.color) performRoll();
-            if (data.type === 'MOVE_PIECE' && gameState.turn === players[senderId]?.color) performMove(data.pieceIdx);
+            if(data.type === 'ROLL' && gameState.turn === players[senderId]?.color) performRoll();
+            if(data.type === 'MOVE' && gameState.turn === players[senderId]?.color) performMove(data.idx);
         }
     };
 
-    const broadcastState = (updatedPlayers = players, sfx = null) => {
-        const payload = { type: 'STATE_UPDATE', state: gameState, players: updatedPlayers, sfx };
-        connsRef.current.forEach(conn => conn.send(payload));
-        setGameState(gameState);
-        setPlayers(updatedPlayers);
+    const broadcastState = (p = players, sfx = null) => {
+        const payload = { type: 'STATE', state: gameState, players: p, sfx };
+        connsRef.current.forEach(c => c.send(payload));
+        // Also update host
+        setGameState(gameState); setPlayers(p);
         if(sfx) AudioEngine[sfx]();
     };
 
-    // Game Logic (Host)
     const performRoll = () => {
-        if (rolling) return;
-        setRolling(true);
-        AudioEngine.roll();
-        
+        if(rolling) return;
+        setRolling(true); AudioEngine.roll();
         setTimeout(() => {
             const roll = Math.floor(Math.random() * 6) + 1;
             setRolling(false);
             const newState = { ...gameState, dice: roll };
             
-            const playerColor = gameState.turn;
-            const pieces = newState.pieces[playerColor];
-            const canMove = pieces.some(p => canMovePiece(p, roll));
+            // Auto Skip Logic
+            const pColor = gameState.turn;
+            const canMove = newState.pieces[pColor].some(p => (p > 0 || roll === 6) && p + roll <= 57);
             
             setGameState(newState);
-            
-            if (!canMove) {
-                broadcastState(players, null);
-                setTimeout(() => nextTurn(newState), 800);
+            if(!canMove) {
+                broadcastState(players);
+                setTimeout(() => nextTurn(newState), 1000);
             } else {
-                broadcastState(players, null);
+                broadcastState(players);
             }
         }, 600);
     };
 
-    const canMovePiece = (steps, roll) => {
-        if (steps === 0 && roll !== 6) return false;
-        if (steps + roll > 57) return false;
-        return true;
-    };
-
-    const performMove = (pieceIdx) => {
+    const performMove = (idx) => {
         const color = gameState.turn;
-        const currentSteps = gameState.pieces[color][pieceIdx];
+        const currentSteps = gameState.pieces[color][idx];
         const roll = gameState.dice;
-
-        if (!canMovePiece(currentSteps, roll)) return;
+        if ((currentSteps === 0 && roll !== 6) || currentSteps + roll > 57) return;
 
         let newSteps = currentSteps === 0 ? 1 : currentSteps + roll;
-        let collision = null;
         let sfx = 'move';
-        
-        const destPos = getGlobalPathIndex(color, newSteps);
-        
-        // Capture Logic
-        if (destPos.type === 'main' && !SAFE_SPOTS.includes(destPos.index)) {
-             PLAYER_ORDER.forEach(otherColor => {
-                 if (otherColor === color) return;
-                 gameState.pieces[otherColor].forEach((s, idx) => {
-                     const otherPos = getGlobalPathIndex(otherColor, s);
-                     if (otherPos.type === 'main' && otherPos.index === destPos.index) {
-                         collision = { color: otherColor, idx: idx };
-                     }
+        let collision = null;
+
+        // Collision Check
+        const dest = getGlobalPathIndex(color, newSteps);
+        if(dest.type === 'main' && !SAFE_SPOTS.includes(dest.index)) {
+             PLAYER_ORDER.forEach(oc => {
+                 if(oc !== color) gameState.pieces[oc].forEach((os, oi) => {
+                     const op = getGlobalPathIndex(oc, os);
+                     if(op.type === 'main' && op.index === dest.index) collision = { c: oc, i: oi };
                  });
              });
         }
 
         const newPieces = { ...gameState.pieces };
         newPieces[color] = [...newPieces[color]];
-        newPieces[color][pieceIdx] = newSteps;
-
-        if (collision) {
-            newPieces[collision.color][collision.idx] = 0; 
-            sfx = 'capture';
-        } else if (newSteps === 57 || SAFE_SPOTS.includes(destPos.index)) {
+        newPieces[color][idx] = newSteps;
+        if(collision) {
+            newPieces[collision.c][collision.i] = 0; sfx = 'capture';
+        } else if(newSteps === 57 || SAFE_SPOTS.includes(dest.index)) {
             sfx = 'safe';
         }
 
         const newState = { ...gameState, pieces: newPieces, dice: 0 };
         setGameState(newState);
         
-        if (roll === 6 || collision || newSteps === 57) {
-            broadcastState(players, sfx);
-        } else {
-            broadcastState(players, sfx);
-            nextTurn(newState);
-        }
+        if(roll === 6 || collision || newSteps === 57) broadcastState(players, sfx);
+        else { broadcastState(players, sfx); nextTurn(newState); }
     };
 
-    const nextTurn = (currentState) => {
-        let nextIdx = (PLAYER_ORDER.indexOf(currentState.turn) + 1) % 4;
-        let loop = 0;
-        while(loop < 4) {
-            const nextColor = PLAYER_ORDER[nextIdx];
-            if (Object.values(players).find(p => p.color === nextColor)) {
-                const newState = { ...currentState, turn: nextColor, dice: 0 };
-                setGameState(newState);
-                broadcastState(players);
+    const nextTurn = (state) => {
+        let idx = (PLAYER_ORDER.indexOf(state.turn) + 1) % 4;
+        for(let i=0; i<4; i++) {
+            const c = PLAYER_ORDER[idx];
+            if(Object.values(players).some(p => p.color === c)) {
+                const ns = { ...state, turn: c, dice: 0 };
+                setGameState(ns); broadcastState(players);
                 return;
             }
-            nextIdx = (nextIdx + 1) % 4;
-            loop++;
+            idx = (idx + 1) % 4;
         }
     };
 
-    // Interactions
-    const handleDiceClick = () => {
-        if (!isHost) sendToHost({ type: 'ROLL_DICE' });
-        else if (gameState.turn === players[myId]?.color) performRoll();
+    // --- UI Interactions ---
+    const handlePieceClick = (color, i) => {
+        if(gameState.dice === 0) return;
+        if(color !== players[myId]?.color) return;
+        if(isHost) performMove(i);
+        else connsRef.current[0]?.send({ type: 'MOVE', idx: i });
     };
 
-    const handlePieceClick = (color, idx) => {
-        if (gameState.dice === 0) return;
-        if (color !== players[myId]?.color) return;
-  
+    const triggerEmoji = (char) => {
+        const id = Date.now();
+        setEmojis(p => [...p, {id, char, x: 20+Math.random()*60, y: 70}]);
+        setTimeout(() => setEmojis(p => p.filter(e => e.id !== id)), 2500);
+    };
+
+    const sendEmoji = (char) => {
+        triggerEmoji(char); setShowEmojiMenu(false);
+        const p = { type: 'EMOJI', char };
+        if(isHost) connsRef.current.forEach(c => c.send(p));
+        else connsRef.current[0]?.send(p);
+    };
+
+    // --- Render Helpers ---
+    const renderCell = (r, c) => {
+        // Base logic
+        if(r<6 && c<6) return (r===0 && c===0) ? <div key="rb" style={{gridArea:'1/1/7/7', background:COLORS.RED}} className="base-area"><Base color="RED" pieces={gameState.pieces.RED} dice={gameState.dice} turn={gameState.turn} myColor={players[myId]?.color} onPieceClick={handlePieceClick}/></div> : null;
+        if(r<6 && c>8) return (r===0 && c===9) ? <div key="gb" style={{gridArea:'1/10/7/16', background:COLORS.GREEN}} className="base-area"><Base color="GREEN" pieces={gameState.pieces.GREEN} dice={gameState.dice} turn={gameState.turn} myColor={players[myId]?.color} onPieceClick={handlePieceClick}/></div> : null;
+        if(r>8 && c<6) return (r===9 && c===0) ? <div key="bb" style={{gridArea:'10/1/16/7', background:COLORS.BLUE}} className="base-area"><Base color="BLUE" pieces={gameState.pieces.BLUE} dice={gameState.dice} turn={gameState.turn} myColor={players[myId]?.color} onPieceClick={handlePieceClick}/></div> : null;
+        if(r>8 && c>8) return (r===9 && c===9) ? <div key="yb" style={{gridArea:'10/10/16/16', background:COLORS.YELLOW}} className="base-area"><Base color="YELLOW" pieces={gameState.pieces.YELLOW} dice={gameState.dice} turn={gameState.turn} myColor={players[myId]?.color} onPieceClick={handlePieceClick}/></div> : null;
+   
